@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block heading %}Flow Graph{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>🕸️ Request flow</h2>
+  <div class="sub">Each recent request traced hop-by-hop: UI → AI Guard → provider → tools, with per-hop latency.</div>
+  <div style="margin-bottom:14px"><button class="btn secondary small" id="refresh">↻ Refresh</button></div>
+  <div id="traces"><div class="skeleton" style="width:60%"></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='flow.js') }}"></script>
+{% endblock %}

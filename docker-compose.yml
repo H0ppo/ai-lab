@@ -1,0 +1,26 @@
+# AI Runtime Security Demo — single service. NO Ollama container is bundled:
+# point OLLAMA_URL at your own external Ollama (configured in the Setup Wizard).
+services:
+  app:
+    build: .
+    image: ai-runtime-security-demo
+    container_name: ai-runtime-security-demo
+    # Reachable on the host IP (0.0.0.0), not just localhost.
+    ports:
+      - "0.0.0.0:${PORT:-5000}:5000"
+    env_file:
+      - .env.local
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "5000"
+    # Lets the container reach an Ollama running on the Docker host via
+    # http://host.docker.internal:11434 (use the host IP for a remote Ollama).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist setup.json + metrics.db across container recreation.
+      - ai_lab_data:/data
+    restart: unless-stopped
+
+volumes:
+  ai_lab_data:

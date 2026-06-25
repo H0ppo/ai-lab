@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block heading %}Agents{% endblock %}
+{% block content %}
+<div class="grid-2">
+  <div class="card">
+    <h2>🤖 Agentic (single agent + tools)</h2>
+    <div class="sub">The agent can call bundled tools: {{ tools | join(', ') }}.</div>
+    <textarea id="agentic-input" rows="3" placeholder="e.g. Find recent arXiv papers on prompt injection and summarize."></textarea>
+    <div style="margin-top:10px"><button class="btn" id="agentic-run">Run agent</button></div>
+    <div id="agentic-out" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card">
+    <h2>👥 Multi-agent</h2>
+    <div class="sub">Orchestrator → researcher → auditor → reviewer.</div>
+    <textarea id="multi-input" rows="3" placeholder="e.g. Assess the security risks of running an LLM agent with file access."></textarea>
+    <div style="margin-top:10px"><button class="btn" id="multi-run">Run team</button></div>
+    <div id="multi-out" style="margin-top:14px"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function busy(el) { el.innerHTML = '<span class="spinner"></span> working…'; }
+
+async function runEndpoint(url, input, out) {
+  const msg = input.value.trim();
+  if (!msg) return;
+  busy(out);
+  try {
+    const r = await UI.API.json(url, { method: "POST", body: JSON.stringify({ message: msg }) });
+    let html = `<div class="bubble">${UI.renderMarkdown(r.answer || "(no answer)")}</div>`;
+    if (r.steps && r.steps.length) {
+      html += '<div class="sub" style="margin-top:12px">Tool calls</div>';
+      r.steps.forEach((s) => { html += `<div class="callout ok" style="margin-top:6px"><strong>${UI.escapeHtml(s.tool)}</strong> · ${UI.escapeHtml(JSON.stringify(s.arguments))}</div>`; });
+    }
+    if (r.transcript) {
+      r.transcript.forEach((t) => { html += `<div class="sub" style="margin-top:12px">${t.role}</div><div class="callout">${UI.escapeHtml((t.output||"").slice(0,400))}</div>`; });
+    }
+    if (r.trace_id) html += `<p style="margin-top:10px"><a href="/flow" style="color:var(--accent-2)">View flow graph →</a></p>`;
+    out.innerHTML = html;
+  } catch (e) { out.innerHTML = `<div class="callout">⚠️ ${UI.escapeHtml(e.message)}</div>`; }
+}
+
+document.getElementById("agentic-run").addEventListener("click", () =>
+  runEndpoint("/api/agentic", document.getElementById("agentic-input"), document.getElementById("agentic-out")));
+document.getElementById("multi-run").addEventListener("click", () =>
+  runEndpoint("/api/multi-agent", document.getElementById("multi-input"), document.getElementById("multi-out")));
+</script>
+{% endblock %}
