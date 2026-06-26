@@ -107,7 +107,20 @@ async function send() {
 sendBtn.addEventListener("click", send);
 promptEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 document.getElementById("clear-chat").addEventListener("click", () => { messagesEl.innerHTML = ""; history = []; });
-providerSel.addEventListener("change", () => { document.getElementById("provider-pill").textContent = providerSel.value; });
+providerSel.addEventListener("change", () => {
+  document.getElementById("provider-pill").textContent = providerSel.value;
+  modelInput.value = "";   // avoid sending one provider's model name to another
+});
+
+// If the default-selected provider isn't usable, switch to the first ready one
+// so a send doesn't silently fail against an unconfigured/broken provider.
+(function ensureReadyProvider() {
+  const sel = providerSel.selectedOptions[0];
+  if (sel && sel.disabled) {
+    const ready = [...providerSel.options].find((o) => !o.disabled);
+    if (ready) { providerSel.value = ready.value; document.getElementById("provider-pill").textContent = ready.value; }
+  }
+})();
 
 /* adversarial chips */
 UI.API.json("/api/attacks").then((d) => {
