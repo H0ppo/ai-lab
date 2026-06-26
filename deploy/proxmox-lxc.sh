@@ -18,8 +18,6 @@ DEF_HOSTNAME="ai-runtime-security"
 DEF_CORES="2"
 DEF_RAM="2048"
 DEF_DISK="8"
-DEF_STORAGE="local-lvm"
-DEF_TMPL_STORAGE="local"
 DEF_BRIDGE="vmbr0"
 DEF_REPO="https://github.com/H0ppo/ai-lab"
 DEF_BRANCH="main"
@@ -63,6 +61,34 @@ ask_yesno() {
   whiptail --title "$1" --yesno "$2" 9 70 3>&1 1>&2 2>&3
 }
 
+# Scan Proxmox storages that support a given content type and let the user pick
+# one from a whiptail menu. Auto-selects when only one is available.
+#   pick_storage <content> <title> <prompt>
+# <content> is e.g. "rootdir" (container rootfs) or "vztmpl" (LXC templates).
+pick_storage() {
+  local content="$1" title="$2" prompt="$3"
+  local -a menu=()
+  local name type status avail label
+  while read -r name type status _ _ avail _; do
+    [[ "$name" == "Name" || -z "$name" ]] && continue   # skip header / blanks
+    [[ "$status" == "active" ]] || continue              # skip inactive storage
+    # pvesm reports sizes in KiB; show type + free space (GiB) as the menu label.
+    label="$(awk -v t="$type" -v a="$avail" 'BEGIN{printf "%-9s %.0f GiB free", t, a/1048576}')"
+    menu+=("$name" "$label")
+  done < <(pvesm status --content "$content" 2>/dev/null)
+
+  local count=$(( ${#menu[@]} / 2 ))
+  if (( count == 0 )); then
+    die "No active storage supporting '$content' content was found. Add one under Datacenter > Storage, then re-run."
+  fi
+  if (( count == 1 )); then
+    echo "${menu[0]}"   # only one choice — use it
+    return
+  fi
+  whiptail --title "$title" --menu "$prompt" 20 78 10 "${menu[@]}" 3>&1 1>&2 2>&3 \
+    || die "Cancelled."
+}
+
 # --------------------------------------------------------------------------- #
 # Preflight
 # --------------------------------------------------------------------------- #
@@ -85,8 +111,10 @@ HOSTNAME=$(ask "Hostname" "Container hostname:" "$DEF_HOSTNAME")
 CORES=$(ask "CPU" "Number of CPU cores:" "$DEF_CORES")
 RAM=$(ask "Memory" "RAM in MB:" "$DEF_RAM")
 DISK=$(ask "Disk" "Root disk size in GB:" "$DEF_DISK")
-STORAGE=$(ask "Storage" "Storage pool for the rootfs:" "$DEF_STORAGE")
-TMPL_STORAGE=$(ask "Template storage" "Storage holding LXC templates (vztmpl):" "$DEF_TMPL_STORAGE")
+STORAGE=$(pick_storage rootdir "Container storage" "Select the storage pool for the container rootfs:")
+msg "Rootfs storage: ${STORAGE}"
+TMPL_STORAGE=$(pick_storage vztmpl "Template storage" "Select the storage that holds LXC templates (vztmpl):")
+msg "Template storage: ${TMPL_STORAGE}"
 BRIDGE=$(ask "Network" "Network bridge (DHCP will be used):" "$DEF_BRIDGE")
 REPO=$(ask "Repository" "Git repository URL:" "$DEF_REPO")
 BRANCH=$(ask "Branch" "Git branch to deploy:" "$DEF_BRANCH")

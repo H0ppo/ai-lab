@@ -38,9 +38,6 @@ and the repo/branch (all with sensible defaults). The script then:
 5. Prints the container's IP and the URLs:
    `http://<lxc-ip>:5000` and `http://<lxc-ip>:5000/setup`.
 
-> **Until the app is merged to `main`,** set the branch prompt to the feature
-> branch (e.g. `claude/ai-runtime-security-config-wen1fy`) so the clone succeeds.
-
 ## Managing the container
 
 ```bash
