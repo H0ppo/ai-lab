@@ -19,12 +19,16 @@
     <input id="anthropic_api_key" type="password" placeholder="sk-ant-… (leave blank to test saved key)" />
     <div style="margin-top:8px"><button class="btn secondary small" id="test-anthropic" type="button">🔑 Test key</button> <span id="test-anthropic-out" style="font-size:13px"></span></div>
     <label>Anthropic model</label>
-    <input id="anthropic_model" value="{{ cfg.anthropic_model }}" />
+    <select id="anthropic_model" data-current="{{ cfg.anthropic_model }}">
+      <option value="{{ cfg.anthropic_model }}" selected>{{ cfg.anthropic_model }}</option>
+    </select>
     <label>OpenAI API key {% if cfg.openai_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
     <input id="openai_api_key" type="password" placeholder="sk-… (leave blank to test saved key)" />
     <div style="margin-top:8px"><button class="btn secondary small" id="test-openai" type="button">🔑 Test key</button> <span id="test-openai-out" style="font-size:13px"></span></div>
     <label>OpenAI model</label>
-    <input id="openai_model" value="{{ cfg.openai_model }}" />
+    <select id="openai_model" data-current="{{ cfg.openai_model }}">
+      <option value="{{ cfg.openai_model }}" selected>{{ cfg.openai_model }}</option>
+    </select>
   </div>
 
   <div class="card">
@@ -102,21 +106,53 @@ document.getElementById("retest").addEventListener("click", async () => {
   } catch (e) { out.innerHTML = "❌ " + UI.escapeHtml(e.message); }
 });
 
-// Test a cloud provider's API key (uses the typed key, or the saved one if blank).
+const MODEL_SELECT = { anthropic: "anthropic_model", openai: "openai_model" };
+
+// Fill a model <select> with the fetched models, keeping the saved one selected.
+function populateModelSelect(selectId, models) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = sel.dataset.current || sel.value || "";
+  const list = [...new Set((models || []).filter(Boolean))];
+  if (current && !list.includes(current)) list.unshift(current);   // keep current even if not listed
+  sel.innerHTML = "";
+  list.forEach((m) => {
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m;
+    if (m === current) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// Test a cloud provider's API key (uses the typed key, or the saved one if blank)
+// and populate that provider's model dropdown from the result.
 async function testProviderKey(provider, keyId, outId) {
   const key = document.getElementById(keyId).value.trim();
   const out = document.getElementById(outId);
   out.innerHTML = '<span class="spinner"></span> testing…';
   try {
     const r = await UI.API.json("/api/test-provider", { method: "POST", body: JSON.stringify({ provider, key }) });
-    out.innerHTML = r.ok
-      ? `✅ Valid — ${r.count} models available`
-      : `❌ ${UI.escapeHtml(r.error || "failed")}`;
+    if (r.ok) {
+      out.innerHTML = `✅ Valid — ${r.count} models available`;
+      populateModelSelect(MODEL_SELECT[provider], r.models);
+    } else {
+      out.innerHTML = `❌ ${UI.escapeHtml(r.error || "failed")}`;
+    }
   } catch (e) { out.innerHTML = "❌ " + UI.escapeHtml(e.message); }
 }
 document.getElementById("test-anthropic").addEventListener("click", () =>
   testProviderKey("anthropic", "anthropic_api_key", "test-anthropic-out"));
 document.getElementById("test-openai").addEventListener("click", () =>
   testProviderKey("openai", "openai_api_key", "test-openai-out"));
+
+// On load, auto-populate model dropdowns for providers that already have a saved key.
+async function loadModels(provider) {
+  try {
+    const r = await UI.API.json("/api/test-provider", { method: "POST", body: JSON.stringify({ provider, key: "" }) });
+    if (r.ok && r.models && r.models.length) populateModelSelect(MODEL_SELECT[provider], r.models);
+  } catch (e) { /* keep the saved model as the sole option */ }
+}
+{% if cfg.anthropic_api_key__set %}loadModels("anthropic");{% endif %}
+{% if cfg.openai_api_key__set %}loadModels("openai");{% endif %}
 </script>
 {% endblock %}
