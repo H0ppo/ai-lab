@@ -16,11 +16,13 @@
     <h2>Cloud providers</h2>
     <div class="sub">Leave a key blank to keep the existing one.</div>
     <label>Anthropic API key {% if cfg.anthropic_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
-    <input id="anthropic_api_key" type="password" placeholder="sk-ant-…" />
+    <input id="anthropic_api_key" type="password" placeholder="sk-ant-… (leave blank to test saved key)" />
+    <div style="margin-top:8px"><button class="btn secondary small" id="test-anthropic" type="button">🔑 Test key</button> <span id="test-anthropic-out" style="font-size:13px"></span></div>
     <label>Anthropic model</label>
     <input id="anthropic_model" value="{{ cfg.anthropic_model }}" />
     <label>OpenAI API key {% if cfg.openai_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
-    <input id="openai_api_key" type="password" placeholder="sk-…" />
+    <input id="openai_api_key" type="password" placeholder="sk-… (leave blank to test saved key)" />
+    <div style="margin-top:8px"><button class="btn secondary small" id="test-openai" type="button">🔑 Test key</button> <span id="test-openai-out" style="font-size:13px"></span></div>
     <label>OpenAI model</label>
     <input id="openai_model" value="{{ cfg.openai_model }}" />
   </div>
@@ -99,5 +101,22 @@ document.getElementById("retest").addEventListener("click", async () => {
     out.innerHTML = r.reachable ? `✅ ${(r.models||[]).length} models` : `❌ ${UI.escapeHtml(r.error||"unreachable")}`;
   } catch (e) { out.innerHTML = "❌ " + UI.escapeHtml(e.message); }
 });
+
+// Test a cloud provider's API key (uses the typed key, or the saved one if blank).
+async function testProviderKey(provider, keyId, outId) {
+  const key = document.getElementById(keyId).value.trim();
+  const out = document.getElementById(outId);
+  out.innerHTML = '<span class="spinner"></span> testing…';
+  try {
+    const r = await UI.API.json("/api/test-provider", { method: "POST", body: JSON.stringify({ provider, key }) });
+    out.innerHTML = r.ok
+      ? `✅ Valid — ${r.count} models available`
+      : `❌ ${UI.escapeHtml(r.error || "failed")}`;
+  } catch (e) { out.innerHTML = "❌ " + UI.escapeHtml(e.message); }
+}
+document.getElementById("test-anthropic").addEventListener("click", () =>
+  testProviderKey("anthropic", "anthropic_api_key", "test-anthropic-out"));
+document.getElementById("test-openai").addEventListener("click", () =>
+  testProviderKey("openai", "openai_api_key", "test-openai-out"));
 </script>
 {% endblock %}

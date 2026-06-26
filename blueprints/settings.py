@@ -12,7 +12,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, render_template, request
 
 import config
-from providers import available_providers
+from providers import ProviderError, available_providers, validate_provider
 
 bp = Blueprint("settings", __name__)
 
@@ -49,6 +49,23 @@ def get_config_api():
     payload = config.public_config()
     payload["providers"] = available_providers(cfg)
     return jsonify(payload)
+
+
+@bp.post("/api/test-provider")
+def test_provider():
+    """Validate a provider's API key/URL. Uses a freshly-typed key if supplied,
+    otherwise the stored one. Reachable from the host IP, like the rest of config."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("provider") or "").lower()
+    key = (data.get("key") or "").strip() or None
+    try:
+        result = validate_provider(name, config.get_config(), key)
+        models = result.get("models", [])
+        return jsonify({"ok": True, "count": len(models), "models": models[:50]})
+    except ProviderError as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+    except Exception as exc:  # noqa: BLE001 - surface any connection error cleanly
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 @bp.post("/api/config")

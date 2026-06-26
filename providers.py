@@ -28,6 +28,30 @@ class ProviderError(RuntimeError):
     """Raised when a provider is misconfigured or unreachable."""
 
 
+def _check(resp: "requests.Response", provider: str) -> None:
+    """Raise a ProviderError carrying the API's real error message on non-2xx.
+
+    ``requests``' ``raise_for_status`` only reports the status code; provider
+    APIs return a JSON body explaining *why* (bad model, no access, bad key…),
+    which is exactly what a user needs to see.
+    """
+    if resp.ok:
+        return
+    msg = ""
+    try:
+        data = resp.json()
+        err = data.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message", "")
+        elif isinstance(err, str):
+            msg = err
+        msg = msg or data.get("message", "")
+    except ValueError:
+        pass
+    msg = (msg or resp.text or f"HTTP {resp.status_code}").strip()
+    raise ProviderError(f"{provider} {resp.status_code}: {msg[:300]}")
+
+
 # --------------------------------------------------------------------------- #
 # Ollama
 # --------------------------------------------------------------------------- #
@@ -54,8 +78,13 @@ class OllamaProvider:
     def ping(base_url: str) -> Dict[str, Any]:
         """Validate a candidate Ollama URL; used by the Setup Wizard."""
         url = base_url.rstrip("/")
+        if "0.0.0.0" in url:
+            raise ProviderError(
+                "0.0.0.0 is a bind address, not a reachable host. Use the actual "
+                "IP of your Ollama machine (e.g. http://192.168.0.50:11434)."
+            )
         resp = requests.get(f"{url}/api/tags", timeout=10)
-        resp.raise_for_status()
+        _check(resp, "ollama")
         data = resp.json()
         models = sorted(m.get("name", "") for m in data.get("models", []) if m.get("name"))
         return {"reachable": True, "models": models}
@@ -137,16 +166,24 @@ class AnthropicProvider:
         self.api_key = api_key
         self.model = model
 
-    def list_models(self) -> List[str]:
-        # Anthropic has no public list endpoint we rely on here; offer common ids.
-        return [self.model, "claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"]
-
     def _headers(self) -> Dict[str, str]:
         return {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
+
+    def list_models(self) -> List[str]:
+        resp = requests.get(
+            "https://api.anthropic.com/v1/models", headers=self._headers(), timeout=15
+        )
+        _check(resp, "anthropic")
+        data = resp.json()
+        return sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+
+    def validate(self) -> Dict[str, Any]:
+        """Verify the API key by listing models. Used by the Settings test button."""
+        return {"models": self.list_models()}
 
     @staticmethod
     def _split_system(messages: List[Dict[str, Any]]):
@@ -169,7 +206,7 @@ class AnthropicProvider:
             resp = requests.post(
                 self.API, headers=self._headers(), json=payload, timeout=DEFAULT_TIMEOUT
             )
-            resp.raise_for_status()
+            _check(resp, "anthropic")
             data = resp.json()
             content = "".join(
                 b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
@@ -193,7 +230,7 @@ class AnthropicProvider:
             timeout=DEFAULT_TIMEOUT,
             stream=True,
         ) as resp:
-            resp.raise_for_status()
+            _check(resp, "anthropic")
             prompt_tokens = completion_tokens = 0
             for raw in resp.iter_lines():
                 if not raw or not raw.startswith(b"data:"):
@@ -237,7 +274,19 @@ class OpenAIProvider:
         self.model = model
 
     def list_models(self) -> List[str]:
-        return [self.model, "gpt-4o-mini", "gpt-4o"]
+        resp = requests.get(
+            "https://api.openai.com/v1/models", headers=self._headers(), timeout=15
+        )
+        _check(resp, "openai")
+        data = resp.json()
+        models = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+        # Surface chat-capable models first for a tidier picker.
+        gpt = [m for m in models if m.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))]
+        return gpt or models
+
+    def validate(self) -> Dict[str, Any]:
+        """Verify the API key by listing models. Used by the Settings test button."""
+        return {"models": self.list_models()}
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -258,7 +307,7 @@ class OpenAIProvider:
             resp = requests.post(
                 self.API, headers=self._headers(), json=payload, timeout=DEFAULT_TIMEOUT
             )
-            resp.raise_for_status()
+            _check(resp, "openai")
             data = resp.json()
             choice = (data.get("choices") or [{}])[0]
             usage = data.get("usage", {})
@@ -280,7 +329,7 @@ class OpenAIProvider:
             timeout=DEFAULT_TIMEOUT,
             stream=True,
         ) as resp:
-            resp.raise_for_status()
+            _check(resp, "openai")
             usage = {"prompt_tokens": 0, "completion_tokens": 0}
             for raw in resp.iter_lines():
                 if not raw or not raw.startswith(b"data:"):
@@ -316,6 +365,23 @@ def get_provider(name: str, cfg: Dict[str, Any]):
         return AnthropicProvider(cfg.get("anthropic_api_key", ""), cfg.get("anthropic_model"))
     if name == "openai":
         return OpenAIProvider(cfg.get("openai_api_key", ""), cfg.get("openai_model"))
+    raise ProviderError(f"Unknown provider: {name}")
+
+
+def validate_provider(name: str, cfg: Dict[str, Any], key_override: Optional[str] = None) -> Dict[str, Any]:
+    """Validate a provider's credentials and return ``{"models": [...]}``.
+
+    ``key_override`` lets the Settings UI test a freshly-typed key before saving;
+    when absent, the stored key/URL is used. Raises ``ProviderError`` on failure
+    with the API's real message.
+    """
+    name = (name or "").lower()
+    if name == "ollama":
+        return OllamaProvider.ping(key_override or cfg.get("ollama_url", ""))
+    if name == "anthropic":
+        return AnthropicProvider(key_override or cfg.get("anthropic_api_key", ""), cfg.get("anthropic_model")).validate()
+    if name == "openai":
+        return OpenAIProvider(key_override or cfg.get("openai_api_key", ""), cfg.get("openai_model")).validate()
     raise ProviderError(f"Unknown provider: {name}")
 
 
