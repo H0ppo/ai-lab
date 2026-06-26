@@ -61,6 +61,18 @@ ask_yesno() {
   whiptail --title "$1" --yesno "$2" 9 70 3>&1 1>&2 2>&3
 }
 
+# Coerce arbitrary input into a valid LXC/DNS hostname label: lowercase, only
+# [a-z0-9-], no leading/trailing/repeated hyphens, max 63 chars. Proxmox rejects
+# underscores, spaces and uppercase ("value does not look like a valid DNS name").
+sanitize_hostname() {
+  local h="${1,,}"                 # lowercase
+  h="${h//[^a-z0-9-]/-}"           # any invalid char -> hyphen
+  while [[ "$h" == *--* ]]; do h="${h//--/-}"; done  # collapse repeats
+  h="${h#-}"; h="${h%-}"           # trim leading/trailing hyphen
+  h="${h:0:63}"; h="${h%-}"        # cap length, retrim
+  printf '%s' "$h"
+}
+
 # Scan Proxmox storages that support a given content type and let the user pick
 # one from a whiptail menu. Auto-selects when only one is available.
 #   pick_storage <content> <title> <prompt>
@@ -107,7 +119,11 @@ VMID=$(ask "Container ID" "VMID for the new LXC:" "$NEXTID")
 [[ "$VMID" =~ ^[0-9]+$ ]] || die "VMID must be numeric."
 pct status "$VMID" >/dev/null 2>&1 && die "VMID $VMID already exists."
 
-HOSTNAME=$(ask "Hostname" "Container hostname:" "$DEF_HOSTNAME")
+CT_HOSTNAME=$(ask "Hostname" "Container hostname (letters, digits, hyphens):" "$DEF_HOSTNAME")
+_clean_hostname=$(sanitize_hostname "$CT_HOSTNAME")
+[[ -z "$_clean_hostname" ]] && _clean_hostname="$DEF_HOSTNAME"
+[[ "$_clean_hostname" != "$CT_HOSTNAME" ]] && warn "Adjusted hostname to a valid DNS form: ${_clean_hostname}"
+CT_HOSTNAME="$_clean_hostname"
 CORES=$(ask "CPU" "Number of CPU cores:" "$DEF_CORES")
 RAM=$(ask "Memory" "RAM in MB:" "$DEF_RAM")
 DISK=$(ask "Disk" "Root disk size in GB:" "$DEF_DISK")
@@ -127,7 +143,7 @@ fi
 ROOT_PW=$(openssl rand -base64 12 2>/dev/null || echo "ChangeMe-$RANDOM")
 
 whiptail --title "Confirm" --yesno \
-  "Create LXC ${VMID} (${HOSTNAME})?\n\nCores: ${CORES}   RAM: ${RAM}MB   Disk: ${DISK}GB\nStorage: ${STORAGE}   Bridge: ${BRIDGE} (DHCP)\nUnprivileged: $([[ $UNPRIV == 1 ]] && echo yes || echo no)\n\nApp: ${REPO} @ ${BRANCH}\nRun: gunicorn + systemd (native)" \
+  "Create LXC ${VMID} (${CT_HOSTNAME})?\n\nCores: ${CORES}   RAM: ${RAM}MB   Disk: ${DISK}GB\nStorage: ${STORAGE}   Bridge: ${BRIDGE} (DHCP)\nUnprivileged: $([[ $UNPRIV == 1 ]] && echo yes || echo no)\n\nApp: ${REPO} @ ${BRANCH}\nRun: gunicorn + systemd (native)" \
   16 72 3>&1 1>&2 2>&3 || die "Cancelled."
 
 # --------------------------------------------------------------------------- #
@@ -154,7 +170,7 @@ ok "Template ready: ${TMPL_REF}"
 CURRENT_STEP="creating the LXC"
 msg "Creating container ${VMID}..."
 pct create "$VMID" "$TMPL_REF" \
-  --hostname "$HOSTNAME" \
+  --hostname "$CT_HOSTNAME" \
   --cores "$CORES" \
   --memory "$RAM" \
   --swap "$RAM" \
@@ -272,7 +288,7 @@ trap - ERR
 echo
 ok "Deployment complete!"
 echo -e "${GRN}────────────────────────────────────────────────────────────${NC}"
-echo -e "  Container : ${VMID} (${HOSTNAME}), unprivileged=$([[ $UNPRIV == 1 ]] && echo yes || echo no)"
+echo -e "  Container : ${VMID} (${CT_HOSTNAME}), unprivileged=$([[ $UNPRIV == 1 ]] && echo yes || echo no)"
 echo -e "  Root pass : ${ROOT_PW}   (login: pct enter ${VMID})"
 echo -e "  App URL   : ${BLU}http://${IP:-<container-ip>}:${APP_PORT}${NC}"
 echo -e "  Setup     : ${BLU}http://${IP:-<container-ip>}:${APP_PORT}/setup${NC}"
