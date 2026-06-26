@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ cfg.ui_theme or 'dark' }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Setup · {{ cfg.app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <div class="page" style="max-width:760px;margin:0 auto">
+    <div class="wizard">
+      <div class="wizard-hero">
+        <div style="font-size:40px">🛡️</div>
+        <h1>{{ cfg.app_name }}</h1>
+        <p>Let's connect your <strong>own Ollama</strong> server. This app does not install or bundle Ollama.</p>
+      </div>
+
+      <div class="steps">
+        <div class="step-dot active" data-dot="1"><b>1</b> Ollama</div>
+        <div class="step-dot" data-dot="2"><b>2</b> Providers</div>
+        <div class="step-dot" data-dot="3"><b>3</b> AI Guard</div>
+      </div>
+
+      <div class="card">
+        <!-- Step 1: Ollama -->
+        <div class="wizard-step active" data-step="1">
+          <h2>Connect to Ollama</h2>
+          <div class="sub">Enter the host/IP and port of your running Ollama instance, then test it.</div>
+          <div class="row">
+            <div style="flex:2">
+              <label>Ollama host / IP</label>
+              <input id="ollama-host" placeholder="e.g. {{ host_ip }} or ollama.internal" />
+            </div>
+            <div style="flex:1">
+              <label>Port</label>
+              <input id="ollama-port" value="11434" />
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--text-dim);margin-top:8px">
+            Running Ollama on this machine? Use this host's IP <code>{{ host_ip }}</code> (not localhost), or
+            <code>host.docker.internal</code> when this app runs in Docker.
+          </p>
+          <button class="btn secondary small" id="test-btn" type="button">🔌 Test connection</button>
+          <div class="test-result" id="test-result"></div>
+
+          <label>Default model</label>
+          <input id="ollama-model" value="{{ cfg.ollama_model }}" placeholder="llama3.2:1b" />
+        </div>
+
+        <!-- Step 2: Cloud providers -->
+        <div class="wizard-step" data-step="2">
+          <h2>Optional cloud providers</h2>
+          <div class="sub">Add API keys to enable Anthropic / OpenAI. Leave blank to use Ollama only.</div>
+          <label>Anthropic API key</label>
+          <input id="anthropic-key" type="password" placeholder="sk-ant-… (optional)" />
+          <label>OpenAI API key</label>
+          <input id="openai-key" type="password" placeholder="sk-… (optional)" />
+          <label>Default provider</label>
+          <select id="default-provider">
+            <option value="ollama" selected>Ollama</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+
+        <!-- Step 3: AI Guard -->
+        <div class="wizard-step" data-step="3">
+          <h2>Zscaler AI Guard</h2>
+          <div class="sub">Optional runtime guardrails on prompts and responses. Leave blank to disable.</div>
+          <label>AI Guard API key</label>
+          <input id="guard-key" type="password" placeholder="(optional)" />
+          <label>Mode</label>
+          <select id="guard-mode">
+            <option value="das">Detection API (DAS)</option>
+            <option value="proxy">Proxy gateway</option>
+          </select>
+          <div class="callout ok" style="margin-top:16px">
+            ✅ You're ready. This app will be reachable on your network at
+            <strong>http://{{ host_ip }}:{{ port }}</strong>
+          </div>
+        </div>
+
+        <div class="wizard-actions">
+          <button class="btn secondary" id="back-btn" type="button" style="visibility:hidden">← Back</button>
+          <button class="btn" id="next-btn" type="button">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-host" class="toast-host"></div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    let step = 1; const maxStep = 3; let resolvedUrl = "";
+    const $ = (id) => document.getElementById(id);
+
+    function render() {
+      document.querySelectorAll(".wizard-step").forEach((el) => el.classList.toggle("active", +el.dataset.step === step));
+      document.querySelectorAll(".step-dot").forEach((el) => {
+        const n = +el.dataset.dot;
+        el.classList.toggle("active", n === step);
+        el.classList.toggle("done", n < step);
+      });
+      $("back-btn").style.visibility = step === 1 ? "hidden" : "visible";
+      $("next-btn").textContent = step === maxStep ? "Finish & launch ✓" : "Next →";
+    }
+
+    $("test-btn").addEventListener("click", async () => {
+      const host = $("ollama-host").value.trim();
+      const port = $("ollama-port").value.trim() || "11434";
+      const out = $("test-result");
+      if (!host) { out.innerHTML = '<span class="callout warn">Enter a host or IP first.</span>'; return; }
+      out.innerHTML = '<span class="spinner"></span> Testing…';
+      try {
+        const r = await UI.API.json("/api/setup/test-ollama", { method: "POST", body: JSON.stringify({ host, port }) });
+        if (r.reachable) {
+          resolvedUrl = r.url;
+          const models = (r.models || []).map((m) => `<span class="chip">${UI.escapeHtml(m)}</span>`).join("");
+          out.innerHTML = `<div class="callout ok">✅ Connected to <code>${UI.escapeHtml(r.url)}</code></div>
+            <div class="model-list">${models || '<span style="color:var(--text-dim);font-size:12px">no models pulled yet</span>'}</div>`;
+          if (r.models && r.models.length && !$("ollama-model").value) $("ollama-model").value = r.models[0];
+        } else {
+          out.innerHTML = `<div class="callout">❌ ${UI.escapeHtml(r.error || "Unreachable")}</div>`;
+        }
+      } catch (e) {
+        out.innerHTML = `<div class="callout">❌ ${UI.escapeHtml(e.message)}</div>`;
+      }
+    });
+
+    $("next-btn").addEventListener("click", async () => {
+      if (step < maxStep) { step++; render(); return; }
+      const host = $("ollama-host").value.trim();
+      const port = $("ollama-port").value.trim() || "11434";
+      if (!host) { UI.toast("Enter your Ollama host on step 1", "err"); step = 1; render(); return; }
+      const ollama_url = resolvedUrl || (host.startsWith("http") ? host : `http://${host}:${port}`);
+      try {
+        const r = await UI.API.json("/api/setup/save", {
+          method: "POST",
+          body: JSON.stringify({
+            ollama_url,
+            ollama_model: $("ollama-model").value.trim(),
+            default_provider: $("default-provider").value,
+            anthropic_api_key: $("anthropic-key").value.trim(),
+            openai_api_key: $("openai-key").value.trim(),
+            guardrails_api_key: $("guard-key").value.trim(),
+            guardrails_enabled: !!$("guard-key").value.trim(),
+            guardrails_mode: $("guard-mode").value,
+          }),
+        });
+        UI.toast("Setup saved — launching…", "ok");
+        setTimeout(() => (window.location = r.redirect || "/"), 600);
+      } catch (e) { UI.toast(e.message, "err"); }
+    });
+
+    $("back-btn").addEventListener("click", () => { if (step > 1) { step--; render(); } });
+    render();
+  </script>
+</body>
+</html>

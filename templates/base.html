@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ cfg.ui_theme or 'dark' }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}{{ cfg.app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">🛡️</span>
+        <span class="brand-name">AI Runtime<br/>Security</span>
+      </div>
+      <nav class="nav">
+        <a class="nav-item" href="/" data-nav="chat"><span>💬</span> Chat</a>
+        <a class="nav-item" href="/agents" data-nav="agents"><span>🤖</span> Agents</a>
+        <a class="nav-item" href="/flow" data-nav="flow"><span>🕸️</span> Flow Graph</a>
+        <a class="nav-item" href="/dashboard" data-nav="dashboard"><span>📊</span> Dashboard</a>
+        <a class="nav-item" href="/settings" data-nav="settings"><span>⚙️</span> Settings</a>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="theme-toggle" class="ghost-btn" title="Toggle theme">🌗 Theme</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="topbar-title">{% block heading %}{{ cfg.app_name }}{% endblock %}</div>
+        <div class="topbar-status">
+          <span class="pill" id="provider-pill">{{ cfg.default_provider }}</span>
+          <span class="pill {{ 'pill-on' if cfg.guardrails_enabled else 'pill-off' }}" id="guard-pill">
+            AI Guard: {{ 'on' if cfg.guardrails_enabled else 'off' }}
+          </span>
+        </div>
+      </header>
+      <div class="page">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <div id="toast-host" class="toast-host"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

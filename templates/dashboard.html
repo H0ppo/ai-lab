@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block heading %}Usage Dashboard{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>📊 Usage</h2>
+  <div class="sub">Token usage and estimated cost across providers (local Ollama is free).</div>
+  <div class="stat-grid" id="stats">
+    <div class="stat"><div class="n skeleton">&nbsp;</div><div class="l">Requests</div></div>
+    <div class="stat"><div class="n skeleton">&nbsp;</div><div class="l">Tokens</div></div>
+    <div class="stat"><div class="n skeleton">&nbsp;</div><div class="l">Est. cost</div></div>
+    <div class="stat"><div class="n skeleton">&nbsp;</div><div class="l">Blocked</div></div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>By provider</h2>
+    <table id="by-provider"><tbody><tr><td>Loading…</td></tr></tbody></table>
+  </div>
+  <div class="card">
+    <h2>Recent requests</h2>
+    <table id="recent"><tbody><tr><td>Loading…</td></tr></tbody></table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fmtCost(c) { return "$" + (c || 0).toFixed(4); }
+function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString(); }
+
+UI.API.json("/api/usage").then((d) => {
+  const t = d.totals || {};
+  const tokens = (t.prompt_tokens || 0) + (t.completion_tokens || 0);
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><div class="n">${t.requests || 0}</div><div class="l">Requests</div></div>
+    <div class="stat"><div class="n">${tokens.toLocaleString()}</div><div class="l">Tokens</div></div>
+    <div class="stat"><div class="n">${fmtCost(t.cost_usd)}</div><div class="l">Est. cost</div></div>
+    <div class="stat"><div class="n">${t.blocked || 0}</div><div class="l">Blocked</div></div>`;
+
+  const bp = (d.by_provider || []).map((r) =>
+    `<tr><td>${UI.escapeHtml(r.provider)}</td><td>${r.requests}</td><td>${(r.tokens||0).toLocaleString()}</td><td>${fmtCost(r.cost_usd)}</td></tr>`).join("");
+  document.getElementById("by-provider").innerHTML =
+    `<thead><tr><th>Provider</th><th>Requests</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${bp || "<tr><td>No data yet</td></tr>"}</tbody>`;
+
+  const rc = (d.recent || []).map((r) =>
+    `<tr><td>${fmtTime(r.ts)}</td><td>${UI.escapeHtml(r.provider)}</td><td>${(r.prompt_tokens+r.completion_tokens)}</td><td>${r.blocked ? "⛔" : "✓"}</td></tr>`).join("");
+  document.getElementById("recent").innerHTML =
+    `<thead><tr><th>Time</th><th>Provider</th><th>Tokens</th><th>Status</th></tr></thead><tbody>${rc || "<tr><td>No data yet</td></tr>"}</tbody>`;
+}).catch((e) => UI.toast(e.message, "err"));
+</script>
+{% endblock %}

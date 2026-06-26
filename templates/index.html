@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block heading %}Chat{% endblock %}
+{% block content %}
+<div class="chat-wrap">
+  <div class="chat-toolbar">
+    <select id="provider-select" aria-label="Provider">
+      {% for p in providers %}
+      <option value="{{ p.id }}" {{ 'disabled' if not p.ready }} {{ 'selected' if p.id == cfg.default_provider }}>
+        {{ p.label }}{{ '' if p.ready else ' (not configured)' }}
+      </option>
+      {% endfor %}
+    </select>
+    <input id="model-input" placeholder="model (optional, e.g. {{ cfg.ollama_model }})" style="max-width:280px" />
+    <span style="flex:1"></span>
+    <button class="btn secondary small" id="clear-chat">Clear</button>
+  </div>
+
+  <div class="card" style="padding:14px 18px">
+    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:8px">⚔️ Adversarial test prompts</div>
+    <div class="chips" id="attack-chips"><span class="skeleton" style="width:120px"></span></div>
+  </div>
+
+  <div class="messages" id="messages"></div>
+
+  <div class="composer card">
+    <textarea id="prompt" rows="1" placeholder="Send a message…  (Shift+Enter for newline)"></textarea>
+    <button class="btn" id="send-btn">Send ➤</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const messagesEl = document.getElementById("messages");
+const promptEl = document.getElementById("prompt");
+const sendBtn = document.getElementById("send-btn");
+const providerSel = document.getElementById("provider-select");
+const modelInput = document.getElementById("model-input");
+let history = [];
+let streaming = false;
+
+function autoGrow(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
+promptEl.addEventListener("input", () => autoGrow(promptEl));
+
+function addMessage(role, html) {
+  const wrap = document.createElement("div");
+  wrap.className = `msg ${role}`;
+  wrap.innerHTML = `<div class="avatar">${role === "user" ? "🧑" : "🛡️"}</div><div class="bubble">${html}</div>`;
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return wrap.querySelector(".bubble");
+}
+
+function addCallout(text, kind) {
+  const b = addMessage("assistant", `<div class="callout ${kind}">${UI.escapeHtml(text)}</div>`);
+  return b;
+}
+
+async function send() {
+  const text = promptEl.value.trim();
+  if (!text || streaming) return;
+  streaming = true; sendBtn.disabled = true;
+  addMessage("user", UI.escapeHtml(text));
+  promptEl.value = ""; autoGrow(promptEl);
+
+  const bubble = addMessage("assistant", `<span class="typing"><i></i><i></i><i></i></span>`);
+  let acc = "";
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, history, provider: providerSel.value, model: modelInput.value.trim() }),
+    });
+    if (!res.ok || !res.body) throw new Error("Request failed");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
+      for (const block of events) {
+        const ev = block.match(/^event: (.*)$/m);
+        const dt = block.match(/^data: (.*)$/m);
+        if (!ev || !dt) continue;
+        const type = ev[1]; const data = JSON.parse(dt[1]);
+        if (type === "delta") { acc += data.text; bubble.innerHTML = UI.renderMarkdown(acc); messagesEl.scrollTop = messagesEl.scrollHeight; }
+        else if (type === "guardrail" && data.action === "block") { /* shown via blocked */ }
+        else if (type === "blocked") { bubble.innerHTML = `<div class="callout">⛔ ${UI.escapeHtml(data.reason)}</div>`; }
+        else if (type === "error") { bubble.innerHTML = `<div class="callout">⚠️ ${UI.escapeHtml(data.message)}</div>`; }
+        else if (type === "done") {
+          if (acc) { history.push({ role: "user", content: text }); history.push({ role: "assistant", content: acc }); }
+          if (data.usage) UI.toast(`Tokens: ${(data.usage.prompt_tokens||0)+(data.usage.completion_tokens||0)}`, "ok");
+        }
+      }
+    }
+  } catch (err) {
+    bubble.innerHTML = `<div class="callout">⚠️ ${UI.escapeHtml(err.message)}</div>`;
+  } finally {
+    streaming = false; sendBtn.disabled = false; promptEl.focus();
+  }
+}
+
+sendBtn.addEventListener("click", send);
+promptEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+document.getElementById("clear-chat").addEventListener("click", () => { messagesEl.innerHTML = ""; history = []; });
+providerSel.addEventListener("change", () => { document.getElementById("provider-pill").textContent = providerSel.value; });
+
+/* adversarial chips */
+UI.API.json("/api/attacks").then((d) => {
+  const host = document.getElementById("attack-chips");
+  host.innerHTML = "";
+  (d.presets || []).forEach((p) => {
+    const c = document.createElement("button");
+    c.className = "chip"; c.textContent = p.label;
+    c.addEventListener("click", () => { promptEl.value = p.prompt; autoGrow(promptEl); promptEl.focus(); });
+    host.appendChild(c);
+  });
+  if (!host.children.length) host.innerHTML = '<span style="color:var(--text-dim);font-size:12px">none</span>';
+}).catch(() => {});
+</script>
+{% endblock %}

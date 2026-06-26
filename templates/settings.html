@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+<div class="grid-2">
+  <div class="card">
+    <h2>Ollama</h2>
+    <div class="sub">Your external Ollama endpoint (no bundled Ollama).</div>
+    <label>Ollama URL</label>
+    <input id="ollama_url" value="{{ cfg.ollama_url }}" placeholder="http://host:11434" />
+    <label>Default model</label>
+    <input id="ollama_model" value="{{ cfg.ollama_model }}" />
+    <div style="margin-top:10px"><button class="btn secondary small" id="retest">🔌 Test Ollama</button> <span id="retest-out" style="font-size:13px"></span></div>
+  </div>
+
+  <div class="card">
+    <h2>Cloud providers</h2>
+    <div class="sub">Leave a key blank to keep the existing one.</div>
+    <label>Anthropic API key {% if cfg.anthropic_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
+    <input id="anthropic_api_key" type="password" placeholder="sk-ant-…" />
+    <label>Anthropic model</label>
+    <input id="anthropic_model" value="{{ cfg.anthropic_model }}" />
+    <label>OpenAI API key {% if cfg.openai_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
+    <input id="openai_api_key" type="password" placeholder="sk-…" />
+    <label>OpenAI model</label>
+    <input id="openai_model" value="{{ cfg.openai_model }}" />
+  </div>
+
+  <div class="card">
+    <h2>Zscaler AI Guard</h2>
+    <div class="sub">Runtime guardrails on prompts and responses.</div>
+    <label><input type="checkbox" id="guardrails_enabled" style="width:auto;vertical-align:-2px" {{ 'checked' if cfg.guardrails_enabled }} /> Enable AI Guard</label>
+    <label>Mode</label>
+    <select id="guardrails_mode">
+      <option value="das" {{ 'selected' if cfg.guardrails_mode == 'das' }}>Detection API (DAS)</option>
+      <option value="proxy" {{ 'selected' if cfg.guardrails_mode == 'proxy' }}>Proxy gateway</option>
+    </select>
+    <label>API key {% if cfg.guardrails_api_key__set %}<span class="pill pill-on">set</span>{% endif %}</label>
+    <input id="guardrails_api_key" type="password" placeholder="(optional)" />
+    <label>Detection URL</label>
+    <input id="guardrails_url" value="{{ cfg.guardrails_url }}" />
+  </div>
+
+  <div class="card">
+    <h2>Appearance & defaults</h2>
+    <label>Default provider</label>
+    <select id="default_provider">
+      {% for p in providers %}
+      <option value="{{ p.id }}" {{ 'selected' if p.id == cfg.default_provider }}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label>Theme</label>
+    <select id="ui_theme">
+      <option value="dark" {{ 'selected' if cfg.ui_theme == 'dark' }}>Dark</option>
+      <option value="light" {{ 'selected' if cfg.ui_theme == 'light' }}>Light</option>
+    </select>
+    {% if admin_required %}
+    <label>Admin token (required to save)</label>
+    <input id="admin_token" type="password" placeholder="X-Admin-Token" />
+    {% endif %}
+    <div class="callout warn" style="margin-top:14px;font-size:12.5px">
+      ⚠️ Config is reachable from this host's IP (not restricted to localhost).
+      {% if not admin_required %}Set <code>ADMIN_TOKEN</code> to require a token for saving.{% endif %}
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:18px;display:flex;gap:10px">
+  <button class="btn" id="save-btn">💾 Save settings</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const fields = ["ollama_url","ollama_model","anthropic_model","openai_model","guardrails_mode","guardrails_url","default_provider","ui_theme"];
+const secretFields = ["anthropic_api_key","openai_api_key","guardrails_api_key"];
+
+document.getElementById("save-btn").addEventListener("click", async () => {
+  const body = {};
+  fields.forEach((f) => { const el = document.getElementById(f); if (el) body[f] = el.value; });
+  secretFields.forEach((f) => { const el = document.getElementById(f); if (el && el.value.trim()) body[f] = el.value.trim(); });
+  body.guardrails_enabled = document.getElementById("guardrails_enabled").checked;
+  const headers = {};
+  const adminEl = document.getElementById("admin_token");
+  if (adminEl && adminEl.value) headers["X-Admin-Token"] = adminEl.value;
+  try {
+    await UI.API.json("/api/config", { method: "POST", headers, body: JSON.stringify(body) });
+    UI.toast("Settings saved", "ok");
+    if (body.ui_theme) { document.documentElement.setAttribute("data-theme", body.ui_theme); localStorage.setItem("theme", body.ui_theme); }
+    setTimeout(() => window.location.reload(), 700);
+  } catch (e) { UI.toast(e.message, "err"); }
+});
+
+document.getElementById("retest").addEventListener("click", async () => {
+  const url = document.getElementById("ollama_url").value.trim();
+  const out = document.getElementById("retest-out");
+  out.innerHTML = '<span class="spinner"></span>';
+  try {
+    const r = await UI.API.json("/api/setup/test-ollama", { method: "POST", body: JSON.stringify({ host: url, port: "" }) });
+    out.innerHTML = r.reachable ? `✅ ${(r.models||[]).length} models` : `❌ ${UI.escapeHtml(r.error||"unreachable")}`;
+  } catch (e) { out.innerHTML = "❌ " + UI.escapeHtml(e.message); }
+});
+</script>
+{% endblock %}
