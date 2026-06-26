@@ -54,8 +54,10 @@
           <div class="sub">Add API keys to enable Anthropic / OpenAI. Leave blank to use Ollama only.</div>
           <label>Anthropic API key</label>
           <input id="anthropic-key" type="password" placeholder="sk-ant-… (optional)" />
+          <div style="margin-top:8px"><button class="btn secondary small" id="test-anthropic" type="button">🔑 Test key</button> <span id="test-anthropic-out" style="font-size:13px"></span></div>
           <label>OpenAI API key</label>
           <input id="openai-key" type="password" placeholder="sk-… (optional)" />
+          <div style="margin-top:8px"><button class="btn secondary small" id="test-openai" type="button">🔑 Test key</button> <span id="test-openai-out" style="font-size:13px"></span></div>
           <label>Default provider</label>
           <select id="default-provider">
             <option value="ollama" selected>Ollama</option>
@@ -127,6 +129,21 @@
         out.innerHTML = `<div class="callout">❌ ${UI.escapeHtml(e.message)}</div>`;
       }
     });
+
+    async function testProviderKey(provider, keyId, outId) {
+      const key = $(keyId).value.trim();
+      const out = $(outId);
+      if (!key) { out.innerHTML = '<span class="callout warn">Enter a key first.</span>'; return; }
+      out.innerHTML = '<span class="spinner"></span> testing…';
+      try {
+        const r = await UI.API.json("/api/test-provider", { method: "POST", body: JSON.stringify({ provider, key }) });
+        out.innerHTML = r.ok
+          ? `<span style="color:var(--ok)">✅ Valid — ${r.count} models</span>`
+          : `<span style="color:var(--danger)">❌ ${UI.escapeHtml(r.error || "failed")}</span>`;
+      } catch (e) { out.innerHTML = `<span style="color:var(--danger)">❌ ${UI.escapeHtml(e.message)}</span>`; }
+    }
+    $("test-anthropic").addEventListener("click", () => testProviderKey("anthropic", "anthropic-key", "test-anthropic-out"));
+    $("test-openai").addEventListener("click", () => testProviderKey("openai", "openai-key", "test-openai-out"));
 
     $("next-btn").addEventListener("click", async () => {
       if (step < maxStep) { step++; render(); return; }
