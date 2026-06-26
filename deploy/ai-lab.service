@@ -1,0 +1,23 @@
+# Reference systemd unit for a native (non-Docker) deployment.
+# proxmox-lxc.sh generates this automatically inside the container; this copy is
+# here for manual installs. Place at /etc/systemd/system/ai-lab.service.
+[Unit]
+Description=AI Runtime Security Demo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ailab
+WorkingDirectory=/opt/ai-lab
+EnvironmentFile=/opt/ai-lab/.env.local
+# Persist setup/metrics outside the code directory.
+Environment=SETUP_FILE=/var/lib/ai-lab/setup.json
+Environment=METRICS_DB=/var/lib/ai-lab/metrics.db
+# Bind 0.0.0.0 so the app is reachable on the host IP (not localhost only).
+ExecStart=/opt/ai-lab/.venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 8 --timeout 180 app:app
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

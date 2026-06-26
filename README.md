@@ -52,6 +52,20 @@ Then open the app on your **host IP** (printed in the container logs), e.g.
 
 Setup and metrics persist in the `ai_lab_data` Docker volume across `docker compose down/up`.
 
+## Deploy on Proxmox (LXC)
+
+Spin the app up in a Proxmox **LXC container**, running natively (gunicorn +
+systemd, no Docker). On your Proxmox VE host, as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/H0ppo/ai-lab/main/deploy/proxmox-lxc.sh -o proxmox-lxc.sh
+bash proxmox-lxc.sh
+```
+
+The interactive script creates an unprivileged Debian 12 container (DHCP),
+deploys the app, and prints `http://<lxc-ip>:5000/setup`. See
+[`deploy/README.md`](deploy/README.md) for details, updates, and management.
+
 ## Configuration
 
 Layered, lowest to highest precedence:
