@@ -10,7 +10,10 @@
       </option>
       {% endfor %}
     </select>
-    <input id="model-input" placeholder="model (optional, e.g. {{ cfg.ollama_model }})" style="max-width:280px" />
+    <select id="model-input" aria-label="Model" style="max-width:280px">
+      <option value="">Default model</option>
+    </select>
+    <button class="btn secondary small" id="refresh-models" title="Reload models">↻</button>
     <span style="flex:1"></span>
     <button class="btn secondary small" id="clear-chat">Clear</button>
   </div>
@@ -107,10 +110,30 @@ async function send() {
 sendBtn.addEventListener("click", send);
 promptEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 document.getElementById("clear-chat").addEventListener("click", () => { messagesEl.innerHTML = ""; history = []; });
+// Populate the model dropdown from the selected provider's available models.
+async function loadChatModels(provider) {
+  modelInput.disabled = true;
+  modelInput.innerHTML = '<option value="">Loading models…</option>';
+  let opts = '<option value="">Default model</option>';
+  try {
+    const r = await UI.API.json("/api/test-provider", { method: "POST", body: JSON.stringify({ provider, key: "" }) });
+    if (r.ok && r.models && r.models.length) {
+      opts += r.models.map((m) => `<option value="${UI.escapeHtml(m)}">${UI.escapeHtml(m)}</option>`).join("");
+    } else if (!r.ok) {
+      opts += `<option value="" disabled>⚠ ${UI.escapeHtml(r.error || "could not load models")}</option>`;
+    }
+  } catch (e) {
+    opts += `<option value="" disabled>⚠ ${UI.escapeHtml(e.message)}</option>`;
+  }
+  modelInput.innerHTML = opts;
+  modelInput.disabled = false;
+}
+
 providerSel.addEventListener("change", () => {
   document.getElementById("provider-pill").textContent = providerSel.value;
-  modelInput.value = "";   // avoid sending one provider's model name to another
+  loadChatModels(providerSel.value);   // repopulate models for the new provider
 });
+document.getElementById("refresh-models").addEventListener("click", () => loadChatModels(providerSel.value));
 
 // If the default-selected provider isn't usable, switch to the first ready one
 // so a send doesn't silently fail against an unconfigured/broken provider.
@@ -121,6 +144,7 @@ providerSel.addEventListener("change", () => {
     if (ready) { providerSel.value = ready.value; document.getElementById("provider-pill").textContent = ready.value; }
   }
 })();
+loadChatModels(providerSel.value);   // initial load for the selected provider
 
 /* adversarial chips */
 UI.API.json("/api/attacks").then((d) => {
