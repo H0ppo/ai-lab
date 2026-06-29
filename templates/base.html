@@ -31,9 +31,14 @@
         <div class="topbar-title">{% block heading %}{{ cfg.app_name }}{% endblock %}</div>
         <div class="topbar-status">
           <span class="pill" id="provider-pill">{{ cfg.default_provider }}</span>
-          <span class="pill {{ 'pill-on' if cfg.guardrails_enabled else 'pill-off' }}" id="guard-pill">
+          <button type="button"
+                  class="pill pill-toggle {{ 'pill-on' if cfg.guardrails_enabled else 'pill-off' }}"
+                  id="guard-pill"
+                  data-enabled="{{ 'true' if cfg.guardrails_enabled else 'false' }}"
+                  data-haskey="{{ 'true' if cfg.guardrails_api_key else 'false' }}"
+                  title="Click to turn Zscaler AI Guard on/off">
             AI Guard: {{ 'on' if cfg.guardrails_enabled else 'off' }}
-          </span>
+          </button>
         </div>
       </header>
       <div class="page">
