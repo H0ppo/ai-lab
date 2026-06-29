@@ -110,6 +110,12 @@ body {
 }
 .pill-on { color: var(--ok); border-color: rgba(46,204,113,.4); background: rgba(46,204,113,.08); }
 .pill-off { color: var(--text-dim); }
+.pill-toggle { font-family: var(--font); cursor: pointer; transition: filter .15s ease, transform .12s ease; }
+.pill-toggle:hover { filter: brightness(1.1); }
+.pill-toggle:active { transform: translateY(1px); }
+.pill-toggle::before { content: "●"; margin-right: 5px; font-size: 9px; vertical-align: 1px; }
+.pill-toggle.pill-off::before { opacity: .4; }
+.pill-toggle:disabled { opacity: .6; cursor: default; }
 
 .page { flex: 1; overflow: auto; padding: 26px; }
 
